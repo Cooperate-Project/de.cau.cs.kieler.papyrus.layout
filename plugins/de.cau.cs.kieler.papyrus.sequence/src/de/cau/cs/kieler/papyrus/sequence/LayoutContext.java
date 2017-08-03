@@ -14,10 +14,14 @@
 package de.cau.cs.kieler.papyrus.sequence;
 
 import java.util.List;
+import java.util.Map;
+import java.util.Map.Entry;
 
 import org.eclipse.elk.alg.layered.graph.LGraph;
-import org.eclipse.elk.core.klayoutdata.KLayoutData;
-import org.eclipse.elk.graph.KNode;
+import org.eclipse.elk.core.LayoutConfigurator;
+import org.eclipse.elk.graph.ElkNode;
+import org.eclipse.elk.graph.properties.IProperty;
+import org.eclipse.elk.graph.properties.IPropertyHolder;
 
 import de.cau.cs.kieler.papyrus.sequence.graph.SGraph;
 import de.cau.cs.kieler.papyrus.sequence.graph.SLifeline;
@@ -38,7 +42,7 @@ public final class LayoutContext {
     // Layout Graphs
     
     /** The original KGraph the layout algorithm was called with. */
-    public KNode kgraph;
+    public ElkNode kgraph;
     /** The {@link SGraph} to be laid out. */
     public SGraph sgraph;
     /** The {@link LGraph} created from the SGraph. */
@@ -92,14 +96,23 @@ public final class LayoutContext {
      *            parent node of the graph that is to be laid out.
      * @return initialized context object.
      */
-    public static LayoutContext fromLayoutData(final KNode parentNode) {
+    public static LayoutContext fromLayoutData(final ElkNode parentNode) {
         LayoutContext context = new LayoutContext();
+        LayoutConfigurator layoutConfig = new LayoutConfigurator();
+        IPropertyHolder layoutData = layoutConfig.configure(parentNode);
         
-        KLayoutData layoutData = parentNode.getData(KLayoutData.class);
-        
+        for(Entry<IProperty<?>, Object> prop: parentNode.getProperties())
+        {
+            IProperty key = prop.getKey();
+            layoutData.setProperty(key, prop.getValue());
+        }
+       
+       
+       
+         
         context.kgraph = parentNode;
         
-        context.borderSpacing = layoutData.getProperty(SequenceDiagramOptions.SPACING_BORDER);
+        context.borderSpacing = layoutData.getProperty(SequenceDiagramOptions.SPACING_NODE_NODE);
         context.messageSpacing = layoutData.getProperty(SequenceDiagramOptions.MESSAGE_SPACING);
         context.lifelineSpacing = layoutData.getProperty(SequenceDiagramOptions.LIFELINE_SPACING);
         context.lifelineYPos = layoutData.getProperty(SequenceDiagramOptions.LIFELINE_Y_POS);

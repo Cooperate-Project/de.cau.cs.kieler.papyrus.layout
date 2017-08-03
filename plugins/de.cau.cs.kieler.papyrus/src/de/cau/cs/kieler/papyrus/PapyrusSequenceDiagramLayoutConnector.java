@@ -13,6 +13,7 @@
  */
 package de.cau.cs.kieler.papyrus;
 
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.LinkedList;
@@ -28,9 +29,11 @@ import org.eclipse.draw2d.geometry.Insets;
 import org.eclipse.draw2d.geometry.Point;
 import org.eclipse.draw2d.geometry.PointList;
 import org.eclipse.draw2d.geometry.Rectangle;
+import org.eclipse.emf.common.util.EList;
 import org.eclipse.emf.ecore.EObject;
 import org.eclipse.emf.ecore.EReference;
 import org.eclipse.gef.EditPart;
+import org.eclipse.gef.RootEditPart;
 import org.eclipse.gef.commands.Command;
 import org.eclipse.gef.commands.CommandStack;
 import org.eclipse.gmf.runtime.diagram.ui.editparts.AbstractBorderedShapeEditPart;
@@ -47,7 +50,7 @@ import org.eclipse.gmf.runtime.diagram.ui.parts.DiagramEditor;
 import org.eclipse.gmf.runtime.draw2d.ui.figures.WrappingLabel;
 import org.eclipse.gmf.runtime.notation.impl.EdgeImpl;
 import org.eclipse.gmf.runtime.notation.impl.ShapeImpl;
-import org.eclipse.papyrus.infra.core.editor.IMultiDiagramEditor;
+import org.eclipse.papyrus.infra.ui.editor.IMultiDiagramEditor;
 import org.eclipse.papyrus.infra.gmfdiag.common.editpart.IPapyrusEditPart;
 import org.eclipse.swt.SWTException;
 import org.eclipse.swt.graphics.Font;
@@ -55,36 +58,36 @@ import org.eclipse.ui.IWorkbenchPart;
 
 import com.google.common.collect.BiMap;
 import com.google.common.collect.Maps;
+import com.google.inject.Inject;
 
-import de.cau.cs.kieler.core.kgraph.KEdge;
-import de.cau.cs.kieler.core.kgraph.KGraphElement;
-import de.cau.cs.kieler.core.kgraph.KGraphFactory;
-import de.cau.cs.kieler.core.kgraph.KLabel;
-import de.cau.cs.kieler.core.kgraph.KNode;
-import de.cau.cs.kieler.core.kgraph.KPort;
-import de.cau.cs.kieler.core.math.KVector;
-import de.cau.cs.kieler.core.properties.IProperty;
-import de.cau.cs.kieler.core.properties.Property;
-import de.cau.cs.kieler.core.util.Maybe;
-import de.cau.cs.kieler.kiml.config.VolatileLayoutConfig;
-import de.cau.cs.kieler.kiml.gmf.GmfDiagramLayoutManager;
-import de.cau.cs.kieler.kiml.gmf.GmfLayoutConfig;
-import de.cau.cs.kieler.kiml.klayoutdata.KEdgeLayout;
-import de.cau.cs.kieler.kiml.klayoutdata.KInsets;
-import de.cau.cs.kieler.kiml.klayoutdata.KLayoutDataFactory;
-import de.cau.cs.kieler.kiml.klayoutdata.KPoint;
-import de.cau.cs.kieler.kiml.klayoutdata.KShapeLayout;
-import de.cau.cs.kieler.kiml.klayoutdata.impl.KEdgeLayoutImpl;
-import de.cau.cs.kieler.kiml.klayoutdata.impl.KShapeLayoutImpl;
-import de.cau.cs.kieler.kiml.options.EdgeLabelPlacement;
-import de.cau.cs.kieler.kiml.options.LayoutOptions;
-import de.cau.cs.kieler.kiml.service.LayoutMapping;
-import de.cau.cs.kieler.kiml.util.KimlUtil;
+import org.eclipse.elk.graph.ElkConnectableShape;
+import org.eclipse.elk.graph.ElkEdge;
+import org.eclipse.elk.graph.ElkEdgeSection;
+import org.eclipse.elk.graph.ElkGraphElement;
+import org.eclipse.elk.graph.ElkGraphFactory;
+import org.eclipse.elk.graph.ElkLabel;
+import org.eclipse.elk.graph.ElkNode;
+import org.eclipse.elk.graph.ElkPort;
+import org.eclipse.elk.core.LayoutConfigurator;
+import org.eclipse.elk.core.math.ElkPadding;
+import org.eclipse.elk.core.math.KVector;
+import org.eclipse.elk.graph.properties.IProperty;
+import org.eclipse.elk.graph.properties.IPropertyHolder;
+import org.eclipse.elk.graph.properties.Property;
+import org.eclipse.elk.graph.util.ElkGraphUtil;
+import org.eclipse.elk.core.util.ElkUtil;
+import org.eclipse.elk.core.util.Maybe;
+import org.eclipse.elk.conn.gmf.GmfDiagramLayoutConnector;
+import org.eclipse.elk.conn.gmf.GmfLayoutConfigurationStore;
+import org.eclipse.elk.conn.gmf.IEditPartFilter;
+import org.eclipse.elk.core.options.EdgeLabelPlacement;
+import org.eclipse.elk.core.options.CoreOptions;
+import org.eclipse.elk.core.service.LayoutMapping;
 import de.cau.cs.kieler.papyrus.sequence.properties.CoordinateSystem;
 import de.cau.cs.kieler.papyrus.sequence.properties.MessageType;
 import de.cau.cs.kieler.papyrus.sequence.properties.NodeType;
 import de.cau.cs.kieler.papyrus.sequence.properties.SequenceArea;
-import de.cau.cs.kieler.papyrus.sequence.properties.SequenceDiagramProperties;
+import de.cau.cs.kieler.papyrus.sequence.properties.SequenceDiagramOptions;
 import de.cau.cs.kieler.papyrus.sequence.properties.SequenceExecution;
 import de.cau.cs.kieler.papyrus.sequence.properties.SequenceExecutionType;
 
@@ -96,27 +99,11 @@ import de.cau.cs.kieler.papyrus.sequence.properties.SequenceExecutionType;
  * @kieler.design proposed grh
  * @kieler.rating proposed yellow grh
  */
-public class MultiPartDiagramLayoutManager extends GmfDiagramLayoutManager {
+public class PapyrusSequenceDiagramLayoutConnector extends GmfDiagramLayoutConnector {
 
-    /** list of connection edit parts that were found in the diagram. */
-    public static final IProperty<List<ConnectionEditPart>> CONNECTIONS = 
-            new Property<List<ConnectionEditPart>>("gmf.connections");
-
-    /** editor part of the currently layouted diagram. */
+       /** editor part of the currently layouted diagram. */
     public static final IProperty<DiagramEditor> DIAGRAM_EDITOR = new Property<DiagramEditor>(
             "gmf.diagramEditor");
-
-    /** diagram edit part of the currently layouted diagram. */
-    public static final IProperty<DiagramEditPart> DIAGRAM_EDIT_PART = new Property<DiagramEditPart>(
-            "gmf.diagramEditPart");
-
-    /** the command that applies the transferred layout to the diagram. */
-    public static final IProperty<Command> LAYOUT_COMMAND = new Property<Command>(
-            "gmf.applyLayoutCommand");
-
-    /** the command stack that executes the command. */
-    public static final IProperty<CommandStack> COMMAND_STACK = new Property<CommandStack>(
-            "gmf.applyLayoutCommandStack");
     
     /** Maps Papyrus node types that are basically Strings to proper node type enumeration values. */
     private static final Map<String, NodeType> PAPYRUS_NODE_TYPES = Maps.newHashMap();
@@ -124,72 +111,45 @@ public class MultiPartDiagramLayoutManager extends GmfDiagramLayoutManager {
     /** Maps Papyrus node types that are basically Strings to proper message type enumeration values. */
     private static final Map<String, MessageType> PAPYRUS_MESSAGE_TYPES = Maps.newHashMap();
 
-    /** the map of references and edges. */
-    private Map<EReference, KEdge> reference2EdgeMap;
     
-    static {
-        PAPYRUS_NODE_TYPES.put("2001", NodeType.SURROUNDING_INTERACTION);
-        PAPYRUS_NODE_TYPES.put("3001", NodeType.LIFELINE);
-        PAPYRUS_NODE_TYPES.put("3002", NodeType.INTERACTION_USE);
-        PAPYRUS_NODE_TYPES.put("3004", NodeType.COMBINED_FRAGMENT);
-        PAPYRUS_NODE_TYPES.put("3005", NodeType.INTERACTION_OPERAND);
-        PAPYRUS_NODE_TYPES.put("3006", NodeType.ACTION_EXEC_SPECIFICATION);
-        PAPYRUS_NODE_TYPES.put("3003", NodeType.BEHAVIOUR_EXEC_SPECIFICATION);
-        PAPYRUS_NODE_TYPES.put("3009", NodeType.COMMENT);
-        PAPYRUS_NODE_TYPES.put("3008", NodeType.CONSTRAINT);
-        PAPYRUS_NODE_TYPES.put("3022", NodeType.DESTRUCTION_EVENT);
-        PAPYRUS_NODE_TYPES.put("3019", NodeType.TIME_CONSTRAINT);
-        PAPYRUS_NODE_TYPES.put("3020", NodeType.TIME_OBSERVATION);
-        PAPYRUS_NODE_TYPES.put("3021", NodeType.DURATION_CONSTRAINT);
-        PAPYRUS_NODE_TYPES.put("3024", NodeType.DURATION_OBSERVATION);
+    
+    
+    @Inject
+    private IEditPartFilter editPartFilter;
         
-        PAPYRUS_MESSAGE_TYPES.put("4003", MessageType.SYNCHRONOUS);
-        PAPYRUS_MESSAGE_TYPES.put("4004", MessageType.ASYNCHRONOUS);
-        PAPYRUS_MESSAGE_TYPES.put("4005", MessageType.REPLY);
-        PAPYRUS_MESSAGE_TYPES.put("4006", MessageType.CREATE);
-        PAPYRUS_MESSAGE_TYPES.put("4007", MessageType.DELETE);
-        PAPYRUS_MESSAGE_TYPES.put("4008", MessageType.LOST);
-        PAPYRUS_MESSAGE_TYPES.put("4009", MessageType.FOUND);
+    static {
+        PAPYRUS_NODE_TYPES.put("Interaction_Shape", NodeType.SURROUNDING_INTERACTION);
+        PAPYRUS_NODE_TYPES.put("Lifeline_Shape", NodeType.LIFELINE);
+        PAPYRUS_NODE_TYPES.put("InteractionUse_Shape", NodeType.INTERACTION_USE);
+        PAPYRUS_NODE_TYPES.put("CombinedFragment_Shape", NodeType.COMBINED_FRAGMENT);
+        PAPYRUS_NODE_TYPES.put("InteractionOperand_Shape", NodeType.INTERACTION_OPERAND);
+        PAPYRUS_NODE_TYPES.put("ActionExecutionSpecification_Shape", NodeType.ACTION_EXEC_SPECIFICATION);
+        PAPYRUS_NODE_TYPES.put("BehaviorExecutionSpecification_Shape", NodeType.BEHAVIOUR_EXEC_SPECIFICATION);
+        PAPYRUS_NODE_TYPES.put("Comment_Shape", NodeType.COMMENT);
+        PAPYRUS_NODE_TYPES.put("Constraint_Shape", NodeType.CONSTRAINT);
+        PAPYRUS_NODE_TYPES.put("DestructionOccurrenceSpecification_Shape", NodeType.DESTRUCTION_EVENT);
+        PAPYRUS_NODE_TYPES.put("TimeConstraint_Shape", NodeType.TIME_CONSTRAINT);
+        PAPYRUS_NODE_TYPES.put("TimeObservation_Shape", NodeType.TIME_OBSERVATION);
+        PAPYRUS_NODE_TYPES.put("DurationConstraint_Shape", NodeType.DURATION_CONSTRAINT);
+        PAPYRUS_NODE_TYPES.put("DurationObservation_Shape", NodeType.DURATION_OBSERVATION);
+        
+        PAPYRUS_MESSAGE_TYPES.put("Message_SynchEdge", MessageType.SYNCHRONOUS);
+        PAPYRUS_MESSAGE_TYPES.put("Message_AsynchEdge", MessageType.ASYNCHRONOUS);
+        PAPYRUS_MESSAGE_TYPES.put("Message_ReplyEdge", MessageType.REPLY);
+        PAPYRUS_MESSAGE_TYPES.put("Message_CreateEdge", MessageType.CREATE);
+        PAPYRUS_MESSAGE_TYPES.put("Message_DeleteEdge", MessageType.DELETE);
+        PAPYRUS_MESSAGE_TYPES.put("Message_LostEdge", MessageType.LOST);
+        PAPYRUS_MESSAGE_TYPES.put("Message_FoundEdge", MessageType.FOUND);
     }
+
+    
+
 
     /**
      * {@inheritDoc}
      */
     @Override
-    public boolean supports(final Object object) {
-        if (object instanceof Collection) {
-            Collection<?> collection = (Collection<?>) object;
-            for (Object o : collection) {
-                if (o instanceof IPapyrusEditPart) {
-                    return true;
-                }
-            }
-            return false;
-        }
-        return object instanceof IMultiDiagramEditor || object instanceof IPapyrusEditPart
-                || object instanceof IGraphicalEditPart;
-    }
-
-//    /**
-//     * {@inheritDoc}
-//     */
-//    @Override
-//    @SuppressWarnings({ "rawtypes", "unchecked" })
-//    public Object getAdapter(final Object object, final Class adapterType) {
-//        if (adapterType.isAssignableFrom(GmfLayoutConfig.class)) {
-//            return layoutConfig;
-//        }
-//        if (object instanceof IMultiDiagramEditor) {
-//            return super.getAdapter(((IMultiDiagramEditor) object).getActiveEditor(), adapterType);
-//        }
-//        return super.getAdapter(object, adapterType);
-//    }
-
-    /**
-     * {@inheritDoc}
-     */
-    @Override
-    public LayoutMapping<IGraphicalEditPart> buildLayoutGraph(final IWorkbenchPart workbenchPart,
+    public LayoutMapping buildLayoutGraph(final IWorkbenchPart workbenchPart,
             final Object diagramPart) {
         
         if (workbenchPart instanceof IMultiDiagramEditor) {
@@ -198,7 +158,7 @@ public class MultiPartDiagramLayoutManager extends GmfDiagramLayoutManager {
                 // Build KGraph in a different way if it is a sequence diagram
                 return buildSequenceLayoutGraph(part, diagramPart);
             }
-            LayoutMapping<IGraphicalEditPart> mapping = super.buildLayoutGraph(part, diagramPart);
+            LayoutMapping mapping = super.buildLayoutGraph(part, diagramPart);
             return mapping;
 
         } else {
@@ -215,18 +175,15 @@ public class MultiPartDiagramLayoutManager extends GmfDiagramLayoutManager {
      *            the diagramPart
      * @return a layoutGraph
      */
-    protected LayoutMapping<IGraphicalEditPart> buildSequenceLayoutGraph(
+    protected LayoutMapping buildSequenceLayoutGraph(
             final IWorkbenchPart workbenchPart, final Object diagramPart) {
 
-        DiagramEditor diagramEditor = null;
-
-        // get the diagram editor part
-        if (workbenchPart instanceof DiagramEditor) {
-            diagramEditor = (DiagramEditor) workbenchPart;
-        }
+     // get the diagram editor part
+        DiagramEditor diagramEditor = getDiagramEditor(workbenchPart);
 
         // choose the layout root edit part
         IGraphicalEditPart layoutRootPart = null;
+        List<ShapeNodeEditPart> selectedParts = null;
         if (diagramPart instanceof ShapeNodeEditPart || diagramPart instanceof DiagramEditPart) {
             layoutRootPart = (IGraphicalEditPart) diagramPart;
         } else if (diagramPart instanceof IGraphicalEditPart) {
@@ -234,27 +191,51 @@ public class MultiPartDiagramLayoutManager extends GmfDiagramLayoutManager {
             if (tgEditPart instanceof ShapeNodeEditPart) {
                 layoutRootPart = (IGraphicalEditPart) tgEditPart;
             }
+        } else if (diagramPart instanceof Collection) {
+            Collection<?> selection = (Collection<?>) diagramPart;
+            // determine the layout root part from the selection
+            for (Object object : selection) {
+                if (object instanceof IGraphicalEditPart) {
+                    if (layoutRootPart != null) {
+                        EditPart parent = commonParent(layoutRootPart, (EditPart) object);
+                        if (parent != null && !(parent instanceof RootEditPart)) {
+                            layoutRootPart = (IGraphicalEditPart) parent;
+                        }
+                    } else if (!(object instanceof ConnectionEditPart)) {
+                        layoutRootPart = (IGraphicalEditPart) object;
+                    }
+                }
+            }
+            // build a list of edit parts that shall be layouted completely
+            if (layoutRootPart != null) {
+                selectedParts = new ArrayList<ShapeNodeEditPart>(selection.size());
+                for (Object object : selection) {
+                    if (object instanceof IGraphicalEditPart) {
+                        EditPart editPart = (EditPart) object;
+                        while (editPart != null && editPart.getParent() != layoutRootPart) {
+                            editPart = editPart.getParent();
+                        }
+                        if (editPart instanceof ShapeNodeEditPart
+                                && editPartFilter.filter(editPart) && !selectedParts.contains(editPart)) {
+                            selectedParts.add((ShapeNodeEditPart) editPart);
+                        }
+                    }
+                }
+            }
         }
         if (layoutRootPart == null && diagramEditor != null) {
             layoutRootPart = diagramEditor.getDiagramEditPart();
         }
         if (layoutRootPart == null) {
-            throw new UnsupportedOperationException(
-                    "Not supported by this layout manager: Workbench part " + workbenchPart
+            throw new IllegalArgumentException(
+                    "Not supported by this layout connector: Workbench part " + workbenchPart
                             + ", Edit part " + diagramPart);
         }
 
-        // create the mapping
-        LayoutMapping<IGraphicalEditPart> mapping = buildSequenceLayoutGraph(layoutRootPart);
-
-        // set optional diagram editor
-        if (diagramEditor != null) {
-            mapping.setProperty(DIAGRAM_EDITOR, diagramEditor);
-        }
         
-        // create a layout configurator from the properties that were set while building
-        mapping.getLayoutConfigs().add(VolatileLayoutConfig.fromProperties(mapping.getLayoutGraph(),
-                GmfLayoutConfig.PRIORITY - 1));
+        
+     // create the mapping
+        LayoutMapping mapping = buildSequenceLayoutGraph(layoutRootPart, selectedParts, workbenchPart);
 
         return mapping;
     }
@@ -266,10 +247,11 @@ public class MultiPartDiagramLayoutManager extends GmfDiagramLayoutManager {
      *            the layout root edit part
      * @return a layout graph mapping
      */
-    protected LayoutMapping<IGraphicalEditPart> buildSequenceLayoutGraph(
-            final IGraphicalEditPart layoutRootPart) {
+    protected LayoutMapping buildSequenceLayoutGraph(
+            final IGraphicalEditPart layoutRootPart,
+            final List<ShapeNodeEditPart> selection, final IWorkbenchPart workbenchPart) {
         
-        LayoutMapping<IGraphicalEditPart> mapping = new LayoutMapping<IGraphicalEditPart>();
+        LayoutMapping mapping = new LayoutMapping((IWorkbenchPart) workbenchPart);
         mapping.setProperty(CONNECTIONS, new LinkedList<ConnectionEditPart>());
 
         // set the parent element
@@ -277,24 +259,26 @@ public class MultiPartDiagramLayoutManager extends GmfDiagramLayoutManager {
 
         // find the diagram edit part
         mapping.setProperty(DIAGRAM_EDIT_PART, getDiagramEditPart(layoutRootPart));
-
-        KNode topNode = KimlUtil.createInitializedNode();
-        KShapeLayout shapeLayout = topNode.getData(KShapeLayout.class);
-        shapeLayout.setProperty(SequenceDiagramProperties.COORDINATE_SYSTEM, CoordinateSystem.PAPYRUS);
+        
+        ElkNode topNode = ElkGraphUtil.createNode(null);
+        
+        topNode.setProperty(SequenceDiagramOptions.COORDINATE_SYSTEM, CoordinateSystem.PAPYRUS);
         
         Rectangle rootBounds = layoutRootPart.getFigure().getBounds();
         if (layoutRootPart instanceof DiagramEditPart) {
             // start with the whole diagram as root for layout
             String labelText = ((DiagramEditPart) layoutRootPart).getDiagramView().getName();
             if (labelText.length() > 0) {
-                KLabel label = KimlUtil.createInitializedLabel(topNode);
+                ElkLabel label = ElkGraphUtil.createLabel(topNode);
                 label.setText(labelText);
             }
         } else {
             // start with a specific node as root for layout
-            shapeLayout.setPos(rootBounds.x, rootBounds.y);
+            topNode.setX(rootBounds.x);
+            topNode.setY(rootBounds.y);
         }
-        shapeLayout.setSize(rootBounds.width, rootBounds.height);
+        topNode.setWidth(rootBounds.width);
+        topNode.setHeight(rootBounds.height);
         mapping.getGraphMap().put(topNode, layoutRootPart);
         mapping.setLayoutGraph(topNode);
 
@@ -317,35 +301,34 @@ public class MultiPartDiagramLayoutManager extends GmfDiagramLayoutManager {
      * @param topNode
      *            the layout root part
      */
-    private void copyAnnotations(final LayoutMapping<IGraphicalEditPart> mapping,
-            final KNode topNode) {
-        KShapeLayout nodelayout = topNode.getData(KShapeLayout.class);
+    private void copyAnnotations(final LayoutMapping mapping,
+            final ElkNode topNode) {
 
         // Copy the executions
-        List<SequenceExecution> executions = nodelayout.getProperty(
-                SequenceDiagramProperties.EXECUTIONS);
+        List<SequenceExecution> executions = topNode.getProperty(
+                SequenceDiagramOptions.EXECUTIONS);
         if (executions != null) {
-            nodelayout.setProperty(SequenceDiagramProperties.EXECUTIONS, executions);
+            topNode.setProperty(SequenceDiagramOptions.EXECUTIONS, executions);
         } else {
-            for (KNode node : topNode.getChildren()) {
+            for (ElkNode node : topNode.getChildren()) {
                 copyAnnotations(mapping, node);
             }
         }
 
         // Copy the information to which element a comment is attached to
-        List<Object> attachedTo = nodelayout.getProperty(SequenceDiagramProperties.ATTACHED_TO);
+        List<Object> attachedTo = topNode.getProperty(SequenceDiagramOptions.ATTACHED_OBJECTS);
         if (attachedTo != null) {
             List<Object> attTo = new LinkedList<Object>();
-            BiMap<KGraphElement, IGraphicalEditPart> graphMap = mapping.getGraphMap();
+            BiMap<Object, ElkGraphElement> inverseGraphMap = mapping.getGraphMap().inverse();
             for (Object att : attachedTo) {
-                attTo.add(graphMap.inverse().get(att));
+                attTo.add(inverseGraphMap.get(att));
             }
-            nodelayout.setProperty(SequenceDiagramProperties.ATTACHED_TO, attTo);
+            topNode.setProperty(SequenceDiagramOptions.ATTACHED_OBJECTS, attTo);
         }
 
-        String attachedElement = nodelayout.getProperty(SequenceDiagramProperties.ATTACHED_ELEMENT_TYPE);
+        String attachedElement = topNode.getProperty(SequenceDiagramOptions.ATTACHED_ELEMENT_TYPE);
         if (attachedElement != null) {
-            nodelayout.setProperty(SequenceDiagramProperties.ATTACHED_ELEMENT_TYPE, attachedElement);
+            topNode.setProperty(SequenceDiagramOptions.ATTACHED_ELEMENT_TYPE, attachedElement);
         }
     }
 
@@ -357,17 +340,17 @@ public class MultiPartDiagramLayoutManager extends GmfDiagramLayoutManager {
      * @param parentEditPart
      *            the parent edit part of the current elements
      * @param parentLayoutNode
-     *            the corresponding KNode
+     *            the corresponding ElkNode
      * @param currentEditPart
      *            the currently analyzed edit part
      */
-    private void buildSequenceLayoutGraphRecursively(final LayoutMapping<IGraphicalEditPart> mapping,
-            final IGraphicalEditPart parentEditPart, final KNode parentLayoutNode,
+    private void buildSequenceLayoutGraphRecursively(final LayoutMapping mapping,
+            final IGraphicalEditPart parentEditPart, final ElkNode parentLayoutNode,
             final IGraphicalEditPart currentEditPart) {
         
-        Maybe<KInsets> kinsets = new Maybe<KInsets>();
+        Maybe<ElkPadding> kinsets = new Maybe<>();
 
-        parentLayoutNode.getData(KShapeLayout.class).setProperty(SequenceDiagramProperties.AREAS,
+        parentLayoutNode.setProperty(SequenceDiagramOptions.AREAS,
                 new LinkedList<SequenceArea>());
 
         // iterate through the children of the element
@@ -384,7 +367,7 @@ public class MultiPartDiagramLayoutManager extends GmfDiagramLayoutManager {
             if (obj instanceof ResizableCompartmentEditPart
                     && ((CompartmentEditPart) obj).getChildren().size() > 0) {
                 CompartmentEditPart compartment = (CompartmentEditPart) obj;
-                if (!GmfLayoutConfig.isNoLayout(compartment)) {
+                if (editPartFilter.filter(compartment)) {
                     boolean compExp = true;
                     IFigure compartmentFigure = compartment.getFigure();
                     if (compartmentFigure instanceof ResizableCompartmentFigure) {
@@ -403,7 +386,7 @@ public class MultiPartDiagramLayoutManager extends GmfDiagramLayoutManager {
                 // process a node, which may be a parent of ports, compartments, or other nodes
             } else if (obj instanceof ShapeNodeEditPart) {
                 ShapeNodeEditPart childNodeEditPart = (ShapeNodeEditPart) obj;
-                if (!GmfLayoutConfig.isNoLayout(childNodeEditPart)) {
+                if (editPartFilter.filter(childNodeEditPart)) {
                     createSequenceNode(mapping, childNodeEditPart, parentEditPart, parentLayoutNode,
                             kinsets);
                 }
@@ -425,60 +408,54 @@ public class MultiPartDiagramLayoutManager extends GmfDiagramLayoutManager {
      *            the node edit part
      * @param parentEditPart
      *            the parent node edit part that contains the current node
-     * @param parentKNode
+     * @param parentElkNode
      *            the corresponding parent layout node
-     * @param kinsets
+     * @param elkinsets
      *            reference parameter for insets; the insets are calculated if this has not been
      *            done before
      */
-    private void createSequenceNode(final LayoutMapping<IGraphicalEditPart> mapping,
+    private void createSequenceNode(final LayoutMapping mapping,
             final ShapeNodeEditPart nodeEditPart, final IGraphicalEditPart parentEditPart,
-            final KNode parentKNode, final Maybe<KInsets> kinsets) {
+            final ElkNode parentElkNode, final Maybe<ElkPadding> elkinsets) {
 
         IFigure nodeFigure = nodeEditPart.getFigure();
-        KNode childLayoutNode = KimlUtil.createInitializedNode();
-        KShapeLayout nodeLayout = childLayoutNode.getData(KShapeLayout.class);
+        ElkNode childLayoutNode = ElkGraphUtil.createNode(parentElkNode);
+        
 
-        // Add node type information to the KNode
+        // Add node type information to the ElkNode
         NodeType nodeType = null;
         if (nodeEditPart.getModel() instanceof ShapeImpl) {
             ShapeImpl impl = (ShapeImpl) nodeEditPart.getModel();
             nodeType = PAPYRUS_NODE_TYPES.get(impl.getType());
-            nodeLayout.setProperty(SequenceDiagramProperties.NODE_TYPE, nodeType);
+            childLayoutNode.setProperty(SequenceDiagramOptions.NODE_TYPE, nodeType);
         }
 
         // set location and size
         Rectangle childBounds = getAbsoluteBounds(nodeFigure);
         Rectangle containerBounds = getAbsoluteBounds(nodeFigure.getParent());
 
-        nodeLayout.setXpos(childBounds.x - containerBounds.x);
-        nodeLayout.setYpos(childBounds.y - containerBounds.y);
-        nodeLayout.setSize(childBounds.width, childBounds.height);
+        childLayoutNode.setX(childBounds.x - containerBounds.x);
+        childLayoutNode.setY(childBounds.y - containerBounds.y);
+        childLayoutNode.setWidth(childBounds.width);
+        childLayoutNode.setHeight(childBounds.height);
 
-        // the modification flag must initially be false
-        ((KShapeLayoutImpl) nodeLayout).resetModificationFlag();
-
-        // determine minimal size of the node
+            // determine minimal size of the node
         try {
             Dimension minSize = nodeFigure.getMinimumSize();
-            nodeLayout.setProperty(LayoutOptions.MIN_WIDTH, (float) minSize.width);
-            nodeLayout.setProperty(LayoutOptions.MIN_HEIGHT, (float) minSize.height);
+            childLayoutNode.setProperty(CoreOptions.NODE_SIZE_MINIMUM, new KVector(minSize.width, minSize.height));
         } catch (SWTException exception) {
             // ignore exception and leave the default minimal size
         }
 
         // set insets if not yet defined
-        if (kinsets.get() == null) {
-            KInsets ki = parentKNode.getData(KShapeLayout.class).getInsets();
+        if (elkinsets.get() == null) {
             Insets insets = calcSpecificInsets(parentEditPart.getFigure(), nodeFigure);
-            ki.setLeft(insets.left);
-            ki.setTop(insets.top);
-            ki.setRight(insets.right);
-            ki.setBottom(insets.bottom);
-            kinsets.set(ki);
+            ElkPadding ei = new ElkPadding(insets.top, insets.right, insets.bottom, insets.left);
+            childLayoutNode.setProperty(CoreOptions.PADDING, ei);
+            elkinsets.set(ei);
         }
 
-        parentKNode.getChildren().add(childLayoutNode);
+        parentElkNode.getChildren().add(childLayoutNode);
         mapping.getGraphMap().put(childLayoutNode, nodeEditPart);
 
         // process the child as new current edit part
@@ -488,13 +465,13 @@ public class MultiPartDiagramLayoutManager extends GmfDiagramLayoutManager {
             handleLifeline(mapping, nodeEditPart, childLayoutNode);
         } else if (nodeType == NodeType.INTERACTION_USE || nodeType == NodeType.COMBINED_FRAGMENT) {
             // Handle areas such as interactionUse, combinedFragment and interactionOperand
-            handleAreas(mapping, nodeEditPart, parentKNode, childLayoutNode);
+            handleAreas(mapping, nodeEditPart, parentElkNode, childLayoutNode);
         } else if (nodeType == NodeType.COMMENT
                 || nodeType == NodeType.CONSTRAINT
                 || nodeType == NodeType.DURATION_OBSERVATION
                 || nodeType == NodeType.TIME_OBSERVATION) {
             
-            handleComments(mapping, nodeEditPart, nodeLayout);
+            handleComments(mapping, nodeEditPart, childLayoutNode);
         }
         // store all the connections to process them later
         addConnections(mapping, nodeEditPart);
@@ -509,10 +486,15 @@ public class MultiPartDiagramLayoutManager extends GmfDiagramLayoutManager {
      * @param nodeEditPart
      *            the current node edit part
      * @param layoutNode
-     *            the created KNode
+     *            the created ElkNode
      */
-    private void handleLifeline(final LayoutMapping<IGraphicalEditPart> mapping,
-            final ShapeNodeEditPart nodeEditPart, final KNode layoutNode) {
+    private void handleLifeline(final LayoutMapping mapping,
+            final ShapeNodeEditPart nodeEditPart, final ElkNode layoutNode) {
+                
+        // handle label
+        IGraphicalEditPart labelObj = nodeEditPart.getChildBySemanticHint("Lifeline_NameLabel");
+        createSequenceNodeLabel(mapping, labelObj, nodeEditPart, layoutNode);
+        
         // handle subnodes like execution specifications
         List<SequenceExecution> executions = new LinkedList<SequenceExecution>();
         for (Object child : nodeEditPart.getChildren()) {
@@ -524,17 +506,18 @@ public class MultiPartDiagramLayoutManager extends GmfDiagramLayoutManager {
                     subNodeType = PAPYRUS_NODE_TYPES.get(shape.getType());
                 }
                 IFigure subNodeFigure = childEditPart.getFigure();
-                KNode subNode = KimlUtil.createInitializedNode();
+                ElkNode subNodeLayout = ElkGraphUtil.createNode(layoutNode);
 
-                mapping.getGraphMap().put(subNode, childEditPart);
+                mapping.getGraphMap().put(subNodeLayout, childEditPart);
 
                 // Copy layout information
                 Rectangle subNodeBounds = getAbsoluteBounds(subNodeFigure);
                 Rectangle subNodeContainerBounds = getAbsoluteBounds(subNodeFigure.getParent());
-                KShapeLayout subNodeLayout = subNode.getData(KShapeLayout.class);
-                subNodeLayout.setXpos(subNodeBounds.x - subNodeContainerBounds.x);
-                subNodeLayout.setYpos(subNodeBounds.y - subNodeContainerBounds.y);
-                subNodeLayout.setSize(subNodeBounds.width, subNodeBounds.height);
+                
+                subNodeLayout.setX(subNodeBounds.x - subNodeContainerBounds.x);
+                subNodeLayout.setY(subNodeBounds.y - subNodeContainerBounds.y);
+                subNodeLayout.setWidth(subNodeBounds.width);
+                subNodeLayout.setHeight(subNodeBounds.height);
 
                 if (subNodeType == NodeType.BEHAVIOUR_EXEC_SPECIFICATION
                         || subNodeType == NodeType.ACTION_EXEC_SPECIFICATION
@@ -543,19 +526,16 @@ public class MultiPartDiagramLayoutManager extends GmfDiagramLayoutManager {
                     
                     // Create Execution Object (which handles all these types) and initialize it
                     createExecution(mapping, nodeEditPart, executions, childEditPart, subNodeType,
-                            subNode);
+                            subNodeLayout);
                 } else if (subNodeType == NodeType.DESTRUCTION_EVENT) {
                     // Subnode is destruction event
-                    layoutNode.getData(KShapeLayout.class).setProperty(
-                            SequenceDiagramProperties.DESTRUCTION, subNode);
+                    subNodeLayout.setProperty(
+                            SequenceDiagramOptions.DESTRUCTION_NODE, subNodeLayout);
                 }
-
-                // the modification flag must initially be false
-                ((KShapeLayoutImpl) subNodeLayout).resetModificationFlag();
             }
         }
         if (executions.size() > 0) {
-            layoutNode.getData(KShapeLayout.class).setProperty(SequenceDiagramProperties.EXECUTIONS,
+            layoutNode.setProperty(SequenceDiagramOptions.EXECUTIONS,
                     executions);
         }
     }
@@ -567,13 +547,13 @@ public class MultiPartDiagramLayoutManager extends GmfDiagramLayoutManager {
      *            the layout mapping
      * @param nodeEditPart
      *            the current node edit part
-     * @param parentKNode
-     *            the parent KNode
+     * @param parentElkNode
+     *            the parent ElkNode
      * @param layoutNode
-     *            the created KNode
+     *            the created ElkNode
      */
-    private void handleAreas(final LayoutMapping<IGraphicalEditPart> mapping,
-            final ShapeNodeEditPart nodeEditPart, final KNode parentKNode, final KNode layoutNode) {
+    private void handleAreas(final LayoutMapping mapping,
+            final ShapeNodeEditPart nodeEditPart, final ElkNode parentElkNode, final ElkNode layoutNode) {
         IFigure nodeFigure = nodeEditPart.getFigure();
         Rectangle bounds = getAbsoluteBounds(nodeFigure);
         Rectangle parentBounds = getAbsoluteBounds(nodeFigure.getParent());
@@ -586,10 +566,9 @@ public class MultiPartDiagramLayoutManager extends GmfDiagramLayoutManager {
         area.getSize().x = bounds.width;
         area.getSize().y = bounds.height;
 
-        KShapeLayout parentLayout = parentKNode.getData(KShapeLayout.class);
-        List<SequenceArea> areas = parentLayout.getProperty(SequenceDiagramProperties.AREAS);
+        List<SequenceArea> areas = parentElkNode.getProperty(SequenceDiagramOptions.AREAS);
         areas.add(area);
-        parentLayout.setProperty(SequenceDiagramProperties.AREAS, areas);
+        parentElkNode.setProperty(SequenceDiagramOptions.AREAS, areas);
         
         // Get coordinates of the interaction operands if existing
         for (Object child : nodeEditPart.getChildren()) {
@@ -600,7 +579,7 @@ public class MultiPartDiagramLayoutManager extends GmfDiagramLayoutManager {
                         AbstractBorderedShapeEditPart ioEditPart = 
                                 (AbstractBorderedShapeEditPart) childObj;
                         Rectangle ioBounds = getAbsoluteBounds(ioEditPart.getFigure());
-                        KNode areaNode = KimlUtil.createInitializedNode();
+                        ElkNode areaNode = ElkGraphUtil.createNode(parentElkNode);
                         mapping.getGraphMap().put(areaNode, ioEditPart);
                         SequenceArea subArea = new SequenceArea(areaNode);
                         // Copy layout information
@@ -625,8 +604,8 @@ public class MultiPartDiagramLayoutManager extends GmfDiagramLayoutManager {
      * @param nodeLayout
      *            the node layout
      */
-    private void handleComments(final LayoutMapping<IGraphicalEditPart> mapping,
-            final ShapeNodeEditPart nodeEditPart, final KShapeLayout nodeLayout) {
+    private void handleComments(final LayoutMapping mapping,
+            final ShapeNodeEditPart nodeEditPart, final ElkNode nodeLayout) {
         // FIXME time observations are not detected properly
 
         // Handle comments, constraints and observations
@@ -636,7 +615,7 @@ public class MultiPartDiagramLayoutManager extends GmfDiagramLayoutManager {
             if (connObj instanceof ConnectionEditPart) {
                 ConnectionEditPart connedit = (ConnectionEditPart) connObj;
                 mapping.getProperty(CONNECTIONS).add(connedit);
-                nodeLayout.setProperty(SequenceDiagramProperties.ATTACHED_ELEMENT_TYPE,
+                nodeLayout.setProperty(SequenceDiagramOptions.ATTACHED_ELEMENT_TYPE,
                         connedit.getTarget().getClass().getSimpleName());
                 
                 // If target is lifeline, attach to the nearest message
@@ -657,7 +636,7 @@ public class MultiPartDiagramLayoutManager extends GmfDiagramLayoutManager {
         // If the object is connected to any other object, attach property with connected
         // objects
         if (attachedTo.size() > 0) {
-            nodeLayout.setProperty(SequenceDiagramProperties.ATTACHED_TO, attachedTo);
+            nodeLayout.setProperty(SequenceDiagramOptions.ATTACHED_OBJECTS, attachedTo);
         }
     }
 
@@ -675,13 +654,14 @@ public class MultiPartDiagramLayoutManager extends GmfDiagramLayoutManager {
      * @param nodeType
      *            the type of the node
      * @param executionNode
-     *            the KNode representation of the execution
+     *            the ElkNode representation of the execution
      */
-    private void createExecution(final LayoutMapping<IGraphicalEditPart> mapping,
+    private void createExecution(final LayoutMapping mapping,
             final ShapeNodeEditPart lifelineEditPart, final List<SequenceExecution> executions,
-            final ShapeNodeEditPart childEditPart, final NodeType nodeType, final KNode executionNode) {
+            final ShapeNodeEditPart childEditPart, final NodeType nodeType, final ElkNode executionNode) {
 
-        KShapeLayout executionLayout = executionNode.getData(KShapeLayout.class);
+        
+        ElkNode executionLayout = ElkGraphUtil.createNode(executionNode);
         IFigure executionFigure = childEditPart.getFigure();
         Rectangle executionBounds = getAbsoluteBounds(executionFigure);
 
@@ -690,15 +670,15 @@ public class MultiPartDiagramLayoutManager extends GmfDiagramLayoutManager {
         if (nodeType == NodeType.BEHAVIOUR_EXEC_SPECIFICATION
                 || nodeType == NodeType.ACTION_EXEC_SPECIFICATION) {
 
-            executionNode.getData(KShapeLayout.class).setProperty(SequenceDiagramProperties.NODE_TYPE,
+            executionNode.setProperty(SequenceDiagramOptions.NODE_TYPE,
                     nodeType);
             execution.setType(SequenceExecutionType.EXECUTION);
         } else if (nodeType == NodeType.DURATION_CONSTRAINT) {
-            executionNode.getData(KShapeLayout.class).setProperty(SequenceDiagramProperties.NODE_TYPE,
+            executionNode.setProperty(SequenceDiagramOptions.NODE_TYPE,
                     nodeType);
             execution.setType(SequenceExecutionType.DURATION);
         } else if (nodeType == NodeType.TIME_CONSTRAINT) {
-            executionNode.getData(KShapeLayout.class).setProperty(SequenceDiagramProperties.NODE_TYPE,
+            executionNode.setProperty(SequenceDiagramOptions.NODE_TYPE,
                     nodeType);
             execution.setType(SequenceExecutionType.TIME_CONSTRAINT);
         }
@@ -835,9 +815,9 @@ public class MultiPartDiagramLayoutManager extends GmfDiagramLayoutManager {
      * @param knode
      *            the layout node for which the label is set
      */
-    private void createSequenceNodeLabel(final LayoutMapping<IGraphicalEditPart> mapping,
+    private void createSequenceNodeLabel(final LayoutMapping mapping,
             final IGraphicalEditPart labelEditPart, final IGraphicalEditPart nodeEditPart,
-            final KNode knode) {
+            final ElkNode knode) {
         IFigure labelFigure = labelEditPart.getFigure();
         String text = null;
         Font font = null;
@@ -851,47 +831,29 @@ public class MultiPartDiagramLayoutManager extends GmfDiagramLayoutManager {
             font = label.getFont();
         }
         if (text != null) {
-            KLabel label = KimlUtil.createInitializedLabel(knode);
+            ElkLabel label = ElkGraphUtil.createLabel(knode);
             label.setText(text);
             mapping.getGraphMap().put(label, labelEditPart);
-            KShapeLayout labelLayout = label.getData(KShapeLayout.class);
+            
             Rectangle labelBounds = getAbsoluteBounds(labelFigure);
             Rectangle nodeBounds = getAbsoluteBounds(nodeEditPart.getFigure());
-            labelLayout.setXpos(labelBounds.x - nodeBounds.x);
-            labelLayout.setYpos(labelBounds.y - nodeBounds.y);
+            label.setX(labelBounds.x - nodeBounds.x);
+            label.setY(labelBounds.y - nodeBounds.y);
             try {
                 Dimension size = labelFigure.getPreferredSize();
-                labelLayout.setSize(size.width, size.height);
+                label.setWidth(size.width);
+                label.setHeight(size.height);
                 if (font != null && !font.isDisposed()) {
-                    labelLayout.setProperty(LayoutOptions.FONT_NAME, font.getFontData()[0].getName());
-                    labelLayout.setProperty(LayoutOptions.FONT_SIZE, font.getFontData()[0].getHeight());
+                    label.setProperty(CoreOptions.FONT_NAME, font.getFontData()[0].getName());
+                    label.setProperty(CoreOptions.FONT_SIZE, font.getFontData()[0].getHeight());
                 }
             } catch (SWTException exception) {
                 // ignore exception and leave the label size to (0, 0)
             }
-            // the modification flag must initially be false
-            ((KShapeLayoutImpl) labelLayout).resetModificationFlag();
+            
         }
     }
 
-    /**
-     * Adds all target connections and connected connections to the list of connections that must be
-     * processed later.
-     * 
-     * @param mapping
-     *            the layout mapping
-     * @param editPart
-     *            an edit part
-     */
-    protected void addConnections(final LayoutMapping<IGraphicalEditPart> mapping,
-            final IGraphicalEditPart editPart) {
-        for (Object targetConn : editPart.getTargetConnections()) {
-            if (targetConn instanceof ConnectionEditPart) {
-                ConnectionEditPart connectionEditPart = (ConnectionEditPart) targetConn;
-                mapping.getProperty(CONNECTIONS).add(connectionEditPart);
-            }
-        }
-    }
 
     /**
      * Creates new edges and takes care of the labels for each connection identified in the
@@ -900,12 +862,13 @@ public class MultiPartDiagramLayoutManager extends GmfDiagramLayoutManager {
      * @param mapping
      *            the layout mapping
      */
-    protected void processSequenceConnections(final LayoutMapping<IGraphicalEditPart> mapping) {
-        reference2EdgeMap = new HashMap<EReference, KEdge>();
+    protected void processSequenceConnections(final LayoutMapping mapping) {
+        Map<EReference, ElkEdge> reference2EdgeMap = new HashMap<EReference, ElkEdge>();
+        
         for (ConnectionEditPart connection : mapping.getProperty(CONNECTIONS)) {
             boolean isOppositeEdge = false;
             EdgeLabelPlacement edgeLabelPlacement = EdgeLabelPlacement.UNDEFINED;
-            KEdge edge;
+            ElkEdge edge;
 
             // check whether the edge belongs to an Ecore reference, which may have opposites
             EObject modelObject = connection.getNotationView().getElement();
@@ -916,127 +879,142 @@ public class MultiPartDiagramLayoutManager extends GmfDiagramLayoutManager {
                     edgeLabelPlacement = EdgeLabelPlacement.TAIL;
                     isOppositeEdge = true;
                 } else {
-                    edge = KimlUtil.createInitializedEdge();
+                    edge = ElkGraphUtil.createEdge(null);
                     reference2EdgeMap.put(reference, edge);
                 }
             } else {
-                edge = KimlUtil.createInitializedEdge();
+                edge = ElkGraphUtil.createEdge(null);
             }
 
             if (connection.getModel() instanceof EdgeImpl) {
                 EdgeImpl impl = (EdgeImpl) connection.getModel();
-                edge.getData(KEdgeLayout.class).setProperty(SequenceDiagramProperties.MESSAGE_TYPE,
+                edge.setProperty(SequenceDiagramOptions.MESSAGE_TYPE,
                         PAPYRUS_MESSAGE_TYPES.get(impl.getType()));
             }
 
-            BiMap<KGraphElement, IGraphicalEditPart> graphMap = mapping.getGraphMap();
+            BiMap<Object, ElkGraphElement> inverseGraphMap = mapping.getGraphMap().inverse();
 
             // find a proper source node and source port
-            KGraphElement sourceElem;
+            ElkGraphElement sourceElem;
             EditPart sourceObj = connection.getSource();
-            sourceElem = graphMap.inverse().get(sourceObj);
-            KNode sourceNode = null;
-            KPort sourcePort = null;
-            if (sourceElem instanceof KNode) {
-                sourceNode = (KNode) sourceElem;
-                NodeType nodeType = sourceNode.getData(KShapeLayout.class).getProperty(
-                        SequenceDiagramProperties.NODE_TYPE);
+            
+            if (sourceObj instanceof ConnectionEditPart) {
+                sourceElem = inverseGraphMap.get(((ConnectionEditPart) sourceObj).getSource());
+                if (sourceElem == null) {
+                    sourceElem = inverseGraphMap.get(((ConnectionEditPart) sourceObj).getTarget());
+                }
+            } else {
+                sourceElem = inverseGraphMap.get(sourceObj);
+            }
+            
+            
+            ElkConnectableShape sourceShape = null;
+            ElkPort sourcePort = null;
+            ElkNode sourceNode = null;
+            if (sourceElem instanceof ElkNode) {
+                sourceNode = (ElkNode) sourceElem;
+                NodeType nodeType = sourceNode.getProperty(
+                        SequenceDiagramOptions.NODE_TYPE);
                 
                 if (nodeType == NodeType.BEHAVIOUR_EXEC_SPECIFICATION
                         || nodeType == NodeType.ACTION_EXEC_SPECIFICATION
                         || nodeType == NodeType.DURATION_CONSTRAINT) {
                     
-                    sourceNode = (KNode) graphMap.inverse().get(sourceObj.getParent());
+                    sourceNode = (ElkNode) inverseGraphMap.get(sourceObj.getParent());
                 }
-            } else if (sourceElem instanceof KPort) {
-                sourcePort = (KPort) sourceElem;
-                sourceNode = sourcePort.getNode();
+                sourceShape = sourceNode;
+            } else if (sourceElem instanceof ElkPort) {
+                sourcePort = (ElkPort) sourceElem;
+                sourceNode = sourcePort.getParent();
+                sourceShape = sourcePort;
             } else {
                 continue;
             }
 
             // find a proper target node and target port
-            KGraphElement targetElem;
+            ElkGraphElement targetElem;
             EditPart targetObj = connection.getTarget();
-            targetElem = graphMap.inverse().get(targetObj);
-            KNode targetNode = null;
-            KPort targetPort = null;
-            if (targetElem instanceof KNode) {
-                targetNode = (KNode) targetElem;
-                NodeType nodeType = sourceNode.getData(KShapeLayout.class).getProperty(
-                        SequenceDiagramProperties.NODE_TYPE);
+            targetElem = inverseGraphMap.get(targetObj);
+            ElkNode targetNode = null;
+            ElkPort targetPort = null;
+            ElkConnectableShape targetShape = null;
+            
+            if (targetElem instanceof ElkNode) {
+                targetNode = (ElkNode) targetElem;
+                NodeType nodeType = targetNode.getProperty(
+                        SequenceDiagramOptions.NODE_TYPE);
                 
                 if (nodeType == NodeType.BEHAVIOUR_EXEC_SPECIFICATION
                         || nodeType == NodeType.ACTION_EXEC_SPECIFICATION
                         || nodeType == NodeType.DURATION_CONSTRAINT) {
                     
-                    targetNode = (KNode) graphMap.inverse().get(targetObj.getParent());
+                    targetNode = (ElkNode) inverseGraphMap.get(targetObj.getParent());
                 }
-            } else if (targetElem instanceof KPort) {
-                targetPort = (KPort) targetElem;
-                targetNode = targetPort.getNode();
-            } else if (targetElem instanceof KEdge) {
-                // Handle edges that have edges as target
-                KEdge targetEdge = (KEdge) targetElem;
-                edge.setSource(sourceNode);
-                // Since KEdges cannot have an edge as target, use its target node (this doesn't
-                // matter for the results)
-
-                edge.setTarget(targetEdge.getTarget());
-                graphMap.put(edge, connection);
+                targetShape = targetNode;
+            } else if (targetElem instanceof ElkPort) {
+                targetPort = (ElkPort) targetElem;
+                targetNode = targetPort.getParent();
+                targetShape = targetPort;
+            } else if (targetElem instanceof ElkEdge) {
+//                // Handle edges that have edges as target
+//                ElkEdge targetEdge = (ElkEdge) targetElem;
+//                edge.getS
+//                edge.setSource(sourceNode);
+//                // Since ElkEdges cannot have an edge as target, use its target node (this doesn't
+//                // matter for the results)
+//
+//                edge.setTarget(targetEdge.getTarget());
+//                graphMap.put(edge, connection);
                 continue;
             } else {
                 continue;
             }
 
             // calculate offset for edge and label coordinates
+            ElkNode edgeContainment = ElkGraphUtil.findLowestCommonAncestor(sourceNode, targetNode);
+            
             KVector offset = new KVector();
-            if (KimlUtil.isDescendant(targetNode, sourceNode)) {
-                KimlUtil.toAbsolute(offset, sourceNode);
-            } else {
-                KimlUtil.toAbsolute(offset, sourceNode.getParent());
-            }
+            ElkUtil.toAbsolute(offset, edgeContainment);
+
 
             if (!isOppositeEdge) {
                 // set source and target
-                edge.setSource(sourceNode);
-                if (sourcePort != null) {
-                    edge.setSourcePort(sourcePort);
-                }
-                edge.setTarget(targetNode);
-                if (targetPort != null) {
-                    edge.setTargetPort(targetPort);
-                }
+                edge.getSources().add(sourceShape);
+                edge.getTargets().add(targetShape);
+                
+                // now that source and target are set, put the edge into the graph
+                edgeContainment.getContainedEdges().add(edge);
 
-                if (!graphMap.containsValue(connection)) {
-                    graphMap.put(edge, connection);
-                }
+                mapping.getGraphMap().put(edge, connection);
 
-                List<SequenceExecution> sourceprops = sourceNode.getData(KShapeLayout.class)
-                        .getProperty(SequenceDiagramProperties.EXECUTIONS);
-                if (sourceprops != null) {
-                    // replace ConnectionEditPart by its KEdge in execution
-                    for (SequenceExecution sourceprop : sourceprops) {
+                // store the current coordinates of the edge
+                setEdgeLayout(edge, connection, offset);
+            
+
+                List<SequenceExecution> targetprops = targetNode
+                        .getProperty(SequenceDiagramOptions.EXECUTIONS);
+                if (targetprops != null) {
+                    for (SequenceExecution targetprop : targetprops) {
+                        // replace ConnectionEditPart by its ElkEdge in execution
+                        if (targetprop.getMessages().remove(connection)) {
+                            targetprop.addMessage(edge);
+                        }
+                    }
+                }
+                
+                List<SequenceExecution> sourceProps = sourceNode
+                        .getProperty(SequenceDiagramOptions.EXECUTIONS);
+                if (sourceProps != null) {
+                    for (SequenceExecution sourceprop : sourceProps) {
+                        // replace ConnectionEditPart by its ElkEdge in execution
                         if (sourceprop.getMessages().remove(connection)) {
                             sourceprop.addMessage(edge);
                         }
                     }
                 }
 
-                List<SequenceExecution> targetprops = targetNode.getData(KShapeLayout.class)
-                        .getProperty(SequenceDiagramProperties.EXECUTIONS);
-                if (targetprops != null) {
-                    for (SequenceExecution targetprop : targetprops) {
-                        // replace ConnectionEditPart by its KEdge in execution
-                        if (targetprop.getMessages().remove(connection)) {
-                            targetprop.addMessage(edge);
-                        }
-                    }
-                }
-
                 // store the current coordinates of the edge
-                KEdgeLayout edgeLayout = edge.getData(KEdgeLayout.class);
-                setEdgeLayout(edgeLayout, connection, offset);
+                setEdgeLayout(edge, connection, offset);
             }
 
             // process edge labels
@@ -1044,41 +1022,7 @@ public class MultiPartDiagramLayoutManager extends GmfDiagramLayoutManager {
         }
     }
 
-    /**
-     * Stores the layout information of the given connection edit part into an edge layout.
-     * 
-     * @param edgeLayout
-     *            an edge layout
-     * @param connection
-     *            a connection edit part
-     * @param offset
-     *            offset to be subtracted from coordinates
-     */
-    protected void setEdgeLayout(final KEdgeLayout edgeLayout, final ConnectionEditPart connection,
-            final KVector offset) {
-        Connection figure = connection.getConnectionFigure();
-        PointList pointList = figure.getPoints();
 
-        KPoint sourcePoint = edgeLayout.getSourcePoint();
-        Point firstPoint = figure.getPoints().getFirstPoint();
-        sourcePoint.setX(firstPoint.x - (float) offset.x);
-        sourcePoint.setY(firstPoint.y - (float) offset.y);
-
-        for (int i = 1; i < pointList.size() - 1; i++) {
-            Point point = figure.getPoints().getPoint(i);
-            KPoint kpoint = KLayoutDataFactory.eINSTANCE.createKPoint();
-            kpoint.setX(point.x - (float) offset.x);
-            kpoint.setY(point.y - (float) offset.y);
-            edgeLayout.getBendPoints().add(kpoint);
-        }
-        KPoint targetPoint = edgeLayout.getTargetPoint();
-        Point lastPoint = figure.getPoints().getLastPoint();
-        targetPoint.setX(lastPoint.x - (float) offset.x);
-        targetPoint.setY(lastPoint.y - (float) offset.y);
-
-        // the modification flag must initially be false
-        ((KEdgeLayoutImpl) edgeLayout).resetModificationFlag();
-    }
 
     /**
      * Process the labels of an edge.
@@ -1095,8 +1039,8 @@ public class MultiPartDiagramLayoutManager extends GmfDiagramLayoutManager {
      * @param offset
      *            the offset for coordinates
      */
-    private void processSequenceEdgeLabels(final LayoutMapping<IGraphicalEditPart> mapping,
-            final ConnectionEditPart connection, final KEdge edge,
+    private void processSequenceEdgeLabels(final LayoutMapping mapping,
+            final ConnectionEditPart connection, final ElkEdge edge,
             final EdgeLabelPlacement placement, final KVector offset) {
         /*
          * ars: source and target is exchanged when defining it in the gmfgen file. So if Emma sets
@@ -1138,49 +1082,47 @@ public class MultiPartDiagramLayoutManager extends GmfDiagramLayoutManager {
                 }
 
                 if (labelText != null && labelText.length() > 0) {
-                    KLabel label = KimlUtil.createInitializedLabel(edge);
-                    KShapeLayout labelLayout = label.getData(KShapeLayout.class);
+                    ElkLabel labelLayout = ElkGraphUtil.createLabel(edge);
+                    
                     if (placement == EdgeLabelPlacement.UNDEFINED) {
                         switch (labelEditPart.getKeyPoint()) {
                         case ConnectionLocator.SOURCE:
-                            labelLayout.setProperty(LayoutOptions.EDGE_LABEL_PLACEMENT,
+                            labelLayout.setProperty(CoreOptions.EDGE_LABELS_PLACEMENT,
                                     EdgeLabelPlacement.HEAD);
                             break;
                         case ConnectionLocator.MIDDLE:
-                            labelLayout.setProperty(LayoutOptions.EDGE_LABEL_PLACEMENT,
+                            labelLayout.setProperty(CoreOptions.EDGE_LABELS_PLACEMENT,
                                     EdgeLabelPlacement.CENTER);
                             break;
                         case ConnectionLocator.TARGET:
-                            labelLayout.setProperty(LayoutOptions.EDGE_LABEL_PLACEMENT,
+                            labelLayout.setProperty(CoreOptions.EDGE_LABELS_PLACEMENT,
                                     EdgeLabelPlacement.TAIL);
                             break;
                         }
                     } else {
-                        labelLayout.setProperty(LayoutOptions.EDGE_LABEL_PLACEMENT, placement);
+                        labelLayout.setProperty(CoreOptions.EDGE_LABELS_PLACEMENT, placement);
                     }
                     Font font = labelFigure.getFont();
                     if (font != null && !font.isDisposed()) {
-                        labelLayout.setProperty(LayoutOptions.FONT_NAME,
+                        labelLayout.setProperty(CoreOptions.FONT_NAME,
                                 font.getFontData()[0].getName());
-                        labelLayout.setProperty(LayoutOptions.FONT_SIZE,
+                        labelLayout.setProperty(CoreOptions.FONT_SIZE,
                                 font.getFontData()[0].getHeight());
                     }
-                    labelLayout.setXpos(labelBounds.x - (float) offset.x);
-                    labelLayout.setYpos(labelBounds.y - (float) offset.y);
+                    labelLayout.setX(labelBounds.x - (double) offset.x);
+                    labelLayout.setY(labelBounds.y - (double) offset.y);
                     if (iconBounds != null) {
                         labelLayout.setWidth(labelBounds.width + iconBounds.width);
                     } else {
                         labelLayout.setWidth(labelBounds.width);
                     }
                     labelLayout.setHeight(labelBounds.height);
-                    ((KShapeLayoutImpl) labelLayout).resetModificationFlag();
-                    label.setText(labelText);
-                    mapping.getGraphMap().put(label, labelEditPart);
+//                    labelLayout.resetModificationFlag();
+                    labelLayout.setText(labelText);
+                    mapping.getGraphMap().put(labelLayout, labelEditPart);
                 } else {
                     // add the label to the mapping anyway so it is reset to its reference location
-                    KLabel label = KGraphFactory.eINSTANCE.createKLabel();
-                    KShapeLayout labelLayout = KLayoutDataFactory.eINSTANCE.createKShapeLayout();
-                    label.getData().add(labelLayout);
+                    ElkLabel label = ElkGraphFactory.eINSTANCE.createElkLabel();
                     mapping.getGraphMap().put(label, labelEditPart);
                 }
             }

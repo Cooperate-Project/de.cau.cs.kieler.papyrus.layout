@@ -17,13 +17,13 @@ import java.util.HashMap;
 import java.util.List;
 
 import org.eclipse.elk.alg.layered.graph.LNode;
-import org.eclipse.elk.alg.layered.properties.InternalProperties;
-import org.eclipse.elk.core.klayoutdata.KEdgeLayout;
-import org.eclipse.elk.core.klayoutdata.KShapeLayout;
+import org.eclipse.elk.alg.layered.options.InternalProperties;
 import org.eclipse.elk.core.util.IElkProgressMonitor;
-import org.eclipse.elk.graph.KEdge;
-import org.eclipse.elk.graph.KLabel;
-import org.eclipse.elk.graph.KNode;
+import org.eclipse.elk.graph.ElkEdge;
+import org.eclipse.elk.graph.ElkEdgeSection;
+import org.eclipse.elk.graph.ElkLabel;
+import org.eclipse.elk.graph.ElkNode;
+import org.eclipse.elk.graph.util.ElkGraphUtil;
 
 import de.cau.cs.kieler.papyrus.sequence.ISequenceLayoutProcessor;
 import de.cau.cs.kieler.papyrus.sequence.LayoutContext;
@@ -32,7 +32,7 @@ import de.cau.cs.kieler.papyrus.sequence.graph.SComment;
 import de.cau.cs.kieler.papyrus.sequence.graph.SGraphElement;
 import de.cau.cs.kieler.papyrus.sequence.graph.SLifeline;
 import de.cau.cs.kieler.papyrus.sequence.graph.SMessage;
-import de.cau.cs.kieler.papyrus.sequence.p6export.KGraphExporter;
+import de.cau.cs.kieler.papyrus.sequence.p6export.ElkGraphExporter;
 import de.cau.cs.kieler.papyrus.sequence.properties.MessageType;
 import de.cau.cs.kieler.papyrus.sequence.properties.NodeType;
 import de.cau.cs.kieler.papyrus.sequence.properties.SequenceArea;
@@ -41,18 +41,18 @@ import de.cau.cs.kieler.papyrus.sequence.properties.InternalSequenceProperties;
 
 /**
  * Calculates coordinates for many objects in a sequence diagram. The coordinates are calculated such
- * that the {@link de.cau.cs.kieler.papyrus.sequence.p6export.KGraphExporter} knows how to interpret
+ * that the {@link de.cau.cs.kieler.papyrus.sequence.p6export.ElkGraphExporter} knows how to interpret
  * them.
  * 
  * <p>
  * The division between this coordinate calculator and the {@link PapyrusCoordinateCalculator} is
- * mighty unfortunate. At some point, the {@link KGraphExporter} should be changed to work with the
+ * mighty unfortunate. At some point, the {@link ElkGraphExporter} should be changed to work with the
  * results produced by this class.
  * </p>
  * 
  * @author cds
  */
-public class KGraphCoordinateCalculator implements ISequenceLayoutProcessor {
+public class ElkGraphCoordinateCalculator implements ISequenceLayoutProcessor {
 
     /**
      * {@inheritDoc}
@@ -533,22 +533,22 @@ public class KGraphCoordinateCalculator implements ISequenceLayoutProcessor {
                 setAreaPositionByLifelinesAndMessage(context, area);
             }
             
-            KNode areaNode = (KNode) area.getLayoutNode();
-            KShapeLayout areaLayout = areaNode.getData(KShapeLayout.class);
+            ElkNode areaNode = (ElkNode) area.getLayoutNode();
+            
 
             // Check if there are contained areas
             int containmentDepth = checkHierarchy(area);
             // If so, an offset has to be calculated in order not to have overlapping borders
             int containmentSpacing = (int) (containmentDepth * context.containmentOffset);
 
-            areaLayout.setXpos((float)
+            areaNode.setX(
                     (area.getPosition().x - context.lifelineSpacing / 2 - containmentSpacing));
-            areaLayout.setWidth((float)
+            areaNode.setWidth(
                     (area.getSize().x + context.lifelineSpacing + 2 * containmentSpacing));
 
-            areaLayout.setYpos((float) (area.getPosition().y - context.areaHeader
+            areaNode.setY( (area.getPosition().y - context.areaHeader
                     - SequenceLayoutConstants.TWENTY - containmentSpacing));
-            areaLayout.setHeight((float) (area.getSize().y + context.areaHeader
+            areaNode.setHeight( (area.getSize().y + context.areaHeader
                     + SequenceLayoutConstants.FOURTY + SequenceLayoutConstants.TEN
                     + 2 * containmentSpacing));
             
@@ -560,43 +560,44 @@ public class KGraphCoordinateCalculator implements ISequenceLayoutProcessor {
             if (area.getSubAreas().size() > 0) {
                 // Reset area yPos and height if subAreas exists (to have a "header" that isn't
                 // occupied by any subArea)
-                areaLayout.setYpos((float) (area.getPosition().y - context.messageSpacing / 2));
-                areaLayout.setHeight((float)
+                areaNode.setY((float) (area.getPosition().y - context.messageSpacing / 2));
+                areaNode.setHeight((float)
                         (area.getSize().y + context.messageSpacing + context.lifelineHeader));
 
                 double lastPos = 0;
-                KShapeLayout lastLayout = null;
+                
+                ElkNode lastLayout = null;
                 for (SequenceArea subArea : area.getSubAreas()) {
-                    KNode subAreaNode = (KNode) subArea.getLayoutNode();
-                    KShapeLayout subAreaLayout = subAreaNode.getData(KShapeLayout.class);
+                    ElkNode subAreaNode = (ElkNode) subArea.getLayoutNode();
+                    
 
-                    subAreaLayout.setXpos(0);
-                    subAreaLayout.setWidth((float) (area.getSize().x
+                    subAreaNode.setX(0);
+                    subAreaNode.setWidth((float) (area.getSize().x
                             + SequenceLayoutConstants.FOURTY + context.lifelineSpacing - 2));
                     
                     if (subArea.getMessages().size() > 0) {
                         // Calculate and set y-position by the area's messages
                         setAreaPositionByMessages(subArea);
-                        subAreaLayout.setYpos((float) (subArea.getPosition().y
+                        subAreaNode.setY((float) (subArea.getPosition().y
                                 - area.getPosition().y + context.lifelineHeader
                                 - context.messageSpacing / 2));
                     } else {
                         // Calculate and set y-position by the available space
-                        subAreaLayout.setYpos((float) lastPos);
+                        subAreaNode.setY((float) lastPos);
                         // FIXME if subarea is empty, it appears first in the list
                     }
 
                     // Reset last subArea's height to fit
                     if (lastLayout != null) {
-                        lastLayout.setHeight(subAreaLayout.getYpos() - lastLayout.getYpos());
+                        lastLayout.setHeight(subAreaNode.getY() - lastLayout.getY());
                     }
-                    lastPos = subAreaLayout.getYpos() + subAreaLayout.getHeight();
-                    lastLayout = subAreaLayout;
+                    lastPos = subAreaNode.getY() + subAreaNode.getHeight();
+                    lastLayout = subAreaNode;
                 }
                 // Reset last subArea's height to fit
                 if (lastLayout != null) {
                     lastLayout.setHeight((float)
-                            (areaLayout.getHeight() - lastLayout.getYpos() - context.areaHeader));
+                            (areaNode.getHeight() - lastLayout.getY() - context.areaHeader));
                 }
             }
         }
@@ -671,9 +672,9 @@ public class KGraphCoordinateCalculator implements ISequenceLayoutProcessor {
         
         for (Object lifelineObj : area.getLifelines()) {
             SLifeline lifeline = (SLifeline) lifelineObj;
-            KNode node = (KNode) lifeline.getProperty(InternalProperties.ORIGIN);
-            KShapeLayout layout = node.getData(KShapeLayout.class);
-            double lifelineCenter = layout.getXpos() + layout.getWidth() / 2;
+            ElkNode node = (ElkNode) lifeline.getProperty(InternalProperties.ORIGIN);
+            
+            double lifelineCenter = node.getX() + node.getWidth() / 2;
             
             minXPos = Math.min(minXPos, lifelineCenter);
             maxXPos = Math.max(maxXPos, lifelineCenter);
@@ -686,11 +687,12 @@ public class KGraphCoordinateCalculator implements ISequenceLayoutProcessor {
         if (area.getNextMessage() != null) {
             Object messageObj = area.getNextMessage();
             SMessage message = (SMessage) messageObj;
-            KEdge edge = (KEdge) message.getProperty(InternalProperties.ORIGIN);
-            KEdgeLayout layout = edge.getData(KEdgeLayout.class);
+            ElkEdge edge = (ElkEdge) message.getProperty(InternalProperties.ORIGIN);
+            
             
             double messageYPos;
-            if (layout.getSourcePoint().getY() < layout.getTargetPoint().getY()) {
+            ElkEdgeSection edgeSection = ElkGraphUtil.firstEdgeSection(edge, false, false);
+            if (edgeSection.getStartY() < edgeSection.getEndY()) {
                 messageYPos = message.getSourceYPos();
             } else {
                 messageYPos = message.getTargetYPos();
@@ -731,18 +733,17 @@ public class KGraphCoordinateCalculator implements ISequenceLayoutProcessor {
      *            calculated already.
      */
     private void calculateAreaLabelPosition(final LayoutContext context, final SequenceArea area) {
-        KNode areaNode = area.getLayoutNode();
+        ElkNode areaNode = area.getLayoutNode();
         if (areaNode.getLabels().isEmpty()) {
             return;
         }
         
-        KLabel areaLabel = areaNode.getLabels().get(0);
+        ElkLabel areaLabel = areaNode.getLabels().get(0);
         
-        KShapeLayout areaLayout = areaNode.getData(KShapeLayout.class);
-        KShapeLayout labelLayout = areaLabel.getData(KShapeLayout.class);
         
-        labelLayout.setYpos(SequenceLayoutConstants.LABELSPACING);
-        labelLayout.setXpos(
-                areaLayout.getWidth() - labelLayout.getWidth() - SequenceLayoutConstants.LABELSPACING);
+        
+        areaLabel.setY(SequenceLayoutConstants.LABELSPACING);
+        areaLabel.setX(
+                areaNode.getWidth() - areaLabel.getWidth() - SequenceLayoutConstants.LABELSPACING);
     }
 }
