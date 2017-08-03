@@ -1,0 +1,37 @@
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+	xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+	<modelVersion>4.0.0</modelVersion>
+
+	<parent>
+		<groupId>de.cau.cs.kieler.papyrus.layout</groupId>
+		<artifactId>releng</artifactId>
+		<version>0.2.0-SNAPSHOT</version>
+		<relativePath>../</relativePath>
+	</parent>
+
+	<artifactId>de.cau.cs.kieler.papyrus.repository</artifactId>
+	<packaging>eclipse-repository</packaging>
+
+	<properties>
+		<bintray.deploy.file>${project.build.directory}/repository</bintray.deploy.file>
+	</properties>
+
+	<build>
+		<plugins>
+			<plugin>
+				<groupId>de.cooperateproject.maven</groupId>
+				<artifactId>de.cooperateproject.maven.bintray.deploy</artifactId>
+				<version>${bintray.deploy.plugin.version}</version>
+				<executions>
+					<execution>
+						<id>bintray-deployment</id>
+						<phase>deploy</phase>
+						<goals>
+							<goal>deploy</goal>
+						</goals>
+					</execution>
+				</executions>
+			</plugin>
+		</plugins>
+	</build>
+</project>

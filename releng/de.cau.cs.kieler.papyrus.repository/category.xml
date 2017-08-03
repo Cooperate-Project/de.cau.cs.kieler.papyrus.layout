@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <site associateSitesURL="associateSites.xml">
 
-   <description name="KIELER Layout for Papyrus Nightly Builds" url="http://rtsys.informatik.uni-kiel.de/~kieler/updatesite/nightly-papyrus/">
-      Update site for the nightly builds of KIELER Layout for Papyrus.
+   <description name="KIELER Layout for Papyrus">
+      Update site for the KIELER Layout for Papyrus.
    </description>
 
    <!-- CATEGORY DEFINITIONS -->
